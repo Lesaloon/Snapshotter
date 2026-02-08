@@ -75,17 +75,24 @@ def test_webhook_notifier_sends_correct_payload(mock_webhook):
 
     notifier.notify("backup_success", test_data)
 
-    # Verify the call was made with correct data
-    mock_webhook.assert_called_once()
-    call_args = mock_webhook.call_args
-    payload = call_args[1]["json"]
-
-    # Check that JSON payload was sent with format matching old backup script
-    assert payload["event"] == "backup_success"
-    assert payload["status"] == "success"
-    assert payload["started_at"] == "2024-01-01T12:00:00"
-    assert payload["finished_at"] == "2024-01-01T12:00:00"
-    assert payload["total_backups"] == 1
-    assert payload["successful_backups"] == 1
-    assert "message" in payload  # Message should be present
-    assert "Backup completed successfully" in payload["message"]
+    # Verify 3 calls were made: summary, per-target, and remote sync
+    assert mock_webhook.call_count == 3
+    
+    # Check first call (summary)
+    summary_payload = mock_webhook.call_args_list[0][1]["json"]
+    assert summary_payload["event"] == "backup_success"
+    assert summary_payload["status"] == "success"
+    assert summary_payload["started_at"] == "2024-01-01T12:00:00"
+    assert "Backup completed successfully" in summary_payload["message"]
+    
+    # Check second call (per-target)
+    target_payload = mock_webhook.call_args_list[1][1]["json"]
+    assert target_payload["event"] == "backup_target_completed"
+    assert target_payload["status"] == "success"
+    assert "test" in target_payload["message"]
+    
+    # Check third call (remote sync)
+    remote_payload = mock_webhook.call_args_list[2][1]["json"]
+    assert remote_payload["event"] == "remote_sync_completed"
+    assert remote_payload["status"] == "success"
+    assert "Remote sync completed" in remote_payload["message"]

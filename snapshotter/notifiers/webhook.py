@@ -30,61 +30,74 @@ class WebhookNotifier(BaseNotifier):
                     error_message="Webhook URL not configured",
                 )
 
-            # Build webhook payload - match old backup script format for n8n/Discord compatibility
-            backups = data.get("backups", [])
-            successful = sum(1 for b in backups if b.get("success"))
-            total = len(backups)
-            total_size_mb = sum(b.get("size_mb", 0) for b in backups)
-            
-            # Get hostname like old script does
+            # Get hostname
             try:
                 hostname = socket.gethostname().split('.')[0]  # Get short hostname
             except Exception:
                 hostname = "unknown-host"
-            
-            # Map event to status like old script does
-            if event == "backup_success":
-                status = "success"
-            elif event == "backup_critical_failure":
-                status = "error"
-            else:
-                status = "partial"
-            
-            payload = {
+
+            backups = data.get("backups", [])
+            successful = sum(1 for b in backups if b.get("success"))
+            total = len(backups)
+            total_size_mb = sum(b.get("size_mb", 0) for b in backups)
+            timestamp = data.get("timestamp", "")
+
+            # Send initial summary message
+            summary_payload = {
                 "event": event,
-                "status": status,
+                "status": self._event_to_status(event),
                 "host": hostname,
-                "started_at": data.get("timestamp", ""),
-                "finished_at": data.get("timestamp", ""),
-                "duration_seconds": sum(int(b.get("duration_seconds", 0)) for b in backups),
-                "backup_size_human": f"{total_size_mb:.2f} MB",
-                "backup_size_bytes": int(total_size_mb * 1024 * 1024),
-                "total_backups": total,
-                "successful_backups": successful,
-                "failed_backups": total - successful,
-                "message": self._build_message(event, backups, total_size_mb),
-                "backups": backups,
+                "started_at": timestamp,
+                "message": self._build_summary_message(event, successful, total, total_size_mb),
             }
-
-            # Send webhook request
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=30,
-            )
-
-            if response.status_code in (200, 201, 202, 204):
-                return NotificationResult(
-                    notifier_type="webhook",
-                    success=True,
-                    message=f"Webhook sent successfully to {url}",
-                )
-            else:
+            
+            response = requests.post(url, json=summary_payload, timeout=30)
+            if response.status_code not in (200, 201, 202, 204):
                 return NotificationResult(
                     notifier_type="webhook",
                     success=False,
                     error_message=f"Webhook returned status {response.status_code}",
                 )
+
+            # Send a message for each backup target
+            for backup in backups:
+                backup_payload = {
+                    "event": "backup_target_completed",
+                    "status": "success" if backup.get("success") else "error",
+                    "host": hostname,
+                    "started_at": timestamp,
+                    "message": self._build_target_message(backup),
+                }
+                response = requests.post(url, json=backup_payload, timeout=30)
+                if response.status_code not in (200, 201, 202, 204):
+                    return NotificationResult(
+                        notifier_type="webhook",
+                        success=False,
+                        error_message=f"Webhook returned status {response.status_code}",
+                    )
+
+            # Send remote sync message if all backups succeeded
+            if event == "backup_success" and backups:
+                remote_payload = {
+                    "event": "remote_sync_completed",
+                    "status": "success",
+                    "host": hostname,
+                    "started_at": timestamp,
+                    "message": f"✓ Remote sync completed for {total} backup(s) on {hostname}",
+                }
+                response = requests.post(url, json=remote_payload, timeout=30)
+                if response.status_code not in (200, 201, 202, 204):
+                    return NotificationResult(
+                        notifier_type="webhook",
+                        success=False,
+                        error_message=f"Webhook returned status {response.status_code}",
+                    )
+
+            return NotificationResult(
+                notifier_type="webhook",
+                success=True,
+                message=f"Webhook sent successfully to {url}",
+            )
 
         except requests.RequestException as e:
             return NotificationResult(
@@ -99,6 +112,37 @@ class WebhookNotifier(BaseNotifier):
                 error_message=f"Unexpected error: {str(e)}",
             )
 
+    def _event_to_status(self, event: str) -> str:
+        """Map event to status."""
+        if event == "backup_success":
+            return "success"
+        elif event == "backup_critical_failure":
+            return "error"
+        else:
+            return "partial"
+
+    def _build_summary_message(self, event: str, successful: int, total: int, total_size_mb: float) -> str:
+        """Build initial summary message."""
+        if event == "backup_success":
+            return f"✓ Backup completed successfully ({successful}/{total} targets, {total_size_mb:.2f} MB)"
+        elif event == "backup_critical_failure":
+            return f"✗ Backup failed ({successful}/{total} targets succeeded, {total_size_mb:.2f} MB)"
+        else:
+            return f"⚠ Backup partially completed ({successful}/{total} targets, {total_size_mb:.2f} MB)"
+
+    def _build_target_message(self, backup: Dict[str, Any]) -> str:
+        """Build per-target backup message."""
+        name = backup.get("name", "unknown")
+        success = backup.get("success", False)
+        size_mb = backup.get("size_mb", 0)
+        duration = backup.get("duration_seconds", 0)
+        error = backup.get("error")
+        
+        if success:
+            return f"✓ {name}: {size_mb:.2f} MB in {duration}s"
+        else:
+            return f"✗ {name}: {error or 'Failed'}"
+
     def validate_config(self) -> bool:
         """Validate webhook notifier configuration.
 
@@ -106,24 +150,3 @@ class WebhookNotifier(BaseNotifier):
             True if configuration is valid
         """
         return bool(self.config.get("url"))
-
-    def _build_message(self, event: str, backups: list, total_size_mb: float) -> str:
-        """Build a human-readable message for the webhook.
-
-        Args:
-            event: Event type
-            backups: List of backup results
-            total_size_mb: Total backup size in MB
-
-        Returns:
-            Human-readable message string
-        """
-        successful = sum(1 for b in backups if b.get("success"))
-        total = len(backups)
-        
-        if event == "backup_success":
-            return f"✓ Backup completed successfully ({successful}/{total} targets, {total_size_mb:.2f} MB)"
-        elif event == "backup_critical_failure":
-            return f"✗ Backup failed ({successful}/{total} targets succeeded, {total_size_mb:.2f} MB)"
-        else:
-            return f"⚠ Backup partially completed ({successful}/{total} targets, {total_size_mb:.2f} MB)"
