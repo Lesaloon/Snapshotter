@@ -83,7 +83,7 @@ class WebhookNotifier(BaseNotifier):
                     "status": "success",
                     "host": hostname,
                     "started_at": timestamp,
-                    "message": f"✓ Remote sync completed for {total} backup(s) on {hostname}",
+                    "message": f"✓ Remote sync completed for {total} backup(s)",
                 }
                 response = requests.post(url, json=remote_payload, timeout=30)
                 if response.status_code not in (200, 201, 202, 204):

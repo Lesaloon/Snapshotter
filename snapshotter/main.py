@@ -267,7 +267,7 @@ class BackupOrchestrator:
                     "name": r.target_name,
                     "type": r.target_type,
                     "success": r.success,
-                    "duration_seconds": int(r.duration_seconds),
+                    "duration_seconds": r.duration_seconds,
                     "size_mb": r.size_mb,
                     "error": r.error_message,
                 }
