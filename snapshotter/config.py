@@ -145,3 +145,11 @@ class Config:
             "file": logging_config.get("file", "/srv/backups/logs/snapshotter.log"),
             "use_syslog": logging_config.get("use_syslog", False),
         }
+
+    def get_remote_upload(self) -> Optional[Dict[str, Any]]:
+        """Get remote upload (rsync) configuration.
+
+        Returns:
+            Remote upload configuration dictionary or None
+        """
+        return self.data.get("remote_upload")

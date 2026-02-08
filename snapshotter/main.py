@@ -16,6 +16,7 @@ from snapshotter.exceptions import SnapshatterError
 from snapshotter.logger import SnapshatterLogger
 from snapshotter.notifiers import WebhookNotifier
 from snapshotter.utils import cleanup_old_backups
+from snapshotter.utils.remote import upload_via_rsync
 
 
 class BackupOrchestrator:
@@ -148,6 +149,10 @@ class BackupOrchestrator:
             result = target.backup(type_backup_dir)
             self.results.append(result)
 
+            # Upload to remote if backup succeeded
+            if result.success and result.backup_file:
+                self._upload_to_remote(result)
+
             if result.success:
                 self.logger.info(
                     f"Backup successful: {backup_name_str} ({result.size_mb:.2f} MB)"
@@ -166,6 +171,48 @@ class BackupOrchestrator:
                 error_message=f"Execution error: {str(e)}",
             )
             self.results.append(result)
+
+    def _upload_to_remote(self, result: BackupResult) -> None:
+        """Upload backup file to remote server via rsync.
+
+        Args:
+            result: BackupResult with backup file information
+        """
+        remote_config = self.config.get_remote_upload()
+        
+        # Check if remote upload is enabled
+        if not remote_config or not remote_config.get("enabled"):
+            return
+        
+        if not result.backup_file:
+            self.logger.warning(f"No backup file for {result.target_name}, skipping remote upload")
+            return
+        
+        try:
+            self.logger.info(f"Uploading {result.target_name} to remote server")
+            
+            upload_result = upload_via_rsync(
+                file_path=str(result.backup_file),
+                host=remote_config.get("host", ""),
+                port=remote_config.get("port", 873),
+                username=remote_config.get("username", ""),
+                password=remote_config.get("password", ""),
+                remote_path=remote_config.get("remote_path", ""),
+                timeout=remote_config.get("timeout", 60),
+            )
+            
+            if upload_result.success:
+                self.logger.info(
+                    f"Remote upload successful: {result.target_name} "
+                    f"({upload_result.bytes_transferred / (1024*1024):.2f} MB)"
+                )
+            else:
+                self.logger.warning(
+                    f"Remote upload failed for {result.target_name}: {upload_result.error_message}"
+                )
+        
+        except Exception as e:
+            self.logger.warning(f"Remote upload error for {result.target_name}: {e}")
 
     def _execute_retention(self, backup_dir: Path) -> None:
         """Execute retention cleanup.

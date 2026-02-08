@@ -54,7 +54,7 @@ logs/
 *~
 
 # Snapshotter specific
-backups/
+/backups/
 /srv/backups/
 
 # Configuration secrets
