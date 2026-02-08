@@ -70,7 +70,7 @@ def test_webhook_notifier_sends_correct_payload(mock_webhook):
     test_data = {
         "timestamp": "2024-01-01T12:00:00",
         "dry_run": False,
-        "backups": [{"name": "test", "success": True, "size_mb": 10.5}],
+        "backups": [{"name": "test", "success": True, "size_mb": 10.5, "duration_seconds": 100}],
     }
 
     notifier.notify("backup_success", test_data)
@@ -80,10 +80,11 @@ def test_webhook_notifier_sends_correct_payload(mock_webhook):
     call_args = mock_webhook.call_args
     payload = call_args[1]["json"]
 
-    # Check that JSON payload was sent with flattened structure
+    # Check that JSON payload was sent with format matching old backup script
     assert payload["event"] == "backup_success"
     assert payload["status"] == "success"
-    assert payload["timestamp"] == "2024-01-01T12:00:00"
+    assert payload["started_at"] == "2024-01-01T12:00:00"
+    assert payload["finished_at"] == "2024-01-01T12:00:00"
     assert payload["total_backups"] == 1
     assert payload["successful_backups"] == 1
     assert "message" in payload  # Message should be present

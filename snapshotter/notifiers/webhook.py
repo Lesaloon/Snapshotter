@@ -29,28 +29,34 @@ class WebhookNotifier(BaseNotifier):
                     error_message="Webhook URL not configured",
                 )
 
-            # Build webhook payload - flatten the structure for n8n/Discord compatibility
-            payload = {
-                "event": event,
-                "status": "success" if event == "backup_success" else "failure" if event == "backup_critical_failure" else "partial_failure",
-                "timestamp": data.get("timestamp", ""),
-                "dry_run": data.get("dry_run", False),
-                "backups": data.get("backups", []),
-            }
-            
-            # Add summary fields from backup data
+            # Build webhook payload - match old backup script format for n8n/Discord compatibility
             backups = data.get("backups", [])
             successful = sum(1 for b in backups if b.get("success"))
             total = len(backups)
             total_size_mb = sum(b.get("size_mb", 0) for b in backups)
             
-            payload.update({
+            # Map event to status like old script does
+            if event == "backup_success":
+                status = "success"
+            elif event == "backup_critical_failure":
+                status = "error"
+            else:
+                status = "partial"
+            
+            payload = {
+                "event": event,
+                "status": status,
+                "started_at": data.get("timestamp", ""),
+                "finished_at": data.get("timestamp", ""),
+                "duration_seconds": sum(int(b.get("duration_seconds", 0)) for b in backups),
+                "backup_size_human": f"{total_size_mb:.2f} MB",
+                "backup_size_bytes": int(total_size_mb * 1024 * 1024),
                 "total_backups": total,
                 "successful_backups": successful,
                 "failed_backups": total - successful,
-                "total_size_mb": round(total_size_mb, 2),
                 "message": self._build_message(event, backups, total_size_mb),
-            })
+                "backups": backups,
+            }
 
             # Send webhook request
             response = requests.post(
