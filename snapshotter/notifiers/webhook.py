@@ -1,5 +1,6 @@
 """Webhook notifier implementation."""
 
+import socket
 from typing import Any, Dict
 
 import requests
@@ -35,6 +36,12 @@ class WebhookNotifier(BaseNotifier):
             total = len(backups)
             total_size_mb = sum(b.get("size_mb", 0) for b in backups)
             
+            # Get hostname like old script does
+            try:
+                hostname = socket.gethostname().split('.')[0]  # Get short hostname
+            except Exception:
+                hostname = "unknown-host"
+            
             # Map event to status like old script does
             if event == "backup_success":
                 status = "success"
@@ -46,6 +53,7 @@ class WebhookNotifier(BaseNotifier):
             payload = {
                 "event": event,
                 "status": status,
+                "host": hostname,
                 "started_at": data.get("timestamp", ""),
                 "finished_at": data.get("timestamp", ""),
                 "duration_seconds": sum(int(b.get("duration_seconds", 0)) for b in backups),
