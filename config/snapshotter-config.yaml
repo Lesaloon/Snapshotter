@@ -1,0 +1,43 @@
+# Snapshotter Configuration File
+# Unified backup orchestration for multi-target infrastructure
+
+# Backup directory (base path for all backups)
+backup_dir: /srv/backups
+
+# Logging configuration
+logging:
+  level: INFO                          # DEBUG, INFO, WARNING, ERROR
+  file: /srv/backups/logs/snapshotter.log
+  use_syslog: false                    # Enable syslog output
+
+# Backup targets - list of backup operations to perform
+backups:
+  # PostgreSQL database backup
+  - type: database
+    name: postgres-main
+    container: postgres               # Docker container name
+    
+  # Prometheus TSDB snapshot backup (zero-downtime API snapshot)
+  - type: prometheus
+    name: prometheus-metrics
+    url: http://localhost:9090        # Prometheus URL
+    data_dir: /srv/prometheus-data    # Prometheus data directory (host path)
+    
+  # Filesystem configuration backup
+  - type: filesystem
+    name: app-config
+    paths:
+      - /etc/nginx
+      - /srv/app/config
+      - /root/.ssh
+
+# Retention policies (days to keep backups)
+retention:
+  database: 30                         # Keep database backups for 30 days
+  prometheus: 14                       # Keep Prometheus backups for 14 days
+  filesystem: 7                        # Keep config backups for 7 days
+
+# Notifications (optional)
+notifications:
+  webhook:
+    url: http://localhost:5678/webhook/snapshotter  # n8n or other webhook service
