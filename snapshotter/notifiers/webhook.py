@@ -139,7 +139,20 @@ class WebhookNotifier(BaseNotifier):
         error = backup.get("error")
         
         if success:
-            return f"✓ {name}: {size_mb:.2f} MB in {duration}s"
+            # Format size intelligently: show KB for small files, MB for larger
+            if size_mb < 1:
+                size_kb = size_mb * 1024
+                size_str = f"{size_kb:.0f} KB"
+            else:
+                size_str = f"{size_mb:.2f} MB"
+            
+            # Format duration with decimals for sub-second precision
+            if duration < 1:
+                duration_str = f"{duration:.1f}s"
+            else:
+                duration_str = f"{int(duration)}s"
+            
+            return f"✓ {name}: {size_str} in {duration_str}"
         else:
             return f"✗ {name}: {error or 'Failed'}"
 
